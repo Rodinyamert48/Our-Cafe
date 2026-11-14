@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { app } from './app';
-import { buildTextures, ensureChar, ensureDuck, fdesc, lookKey } from './art';
+import { FLOOR_VARIANTS, buildTextures, ensureChar, ensureDuck, fdesc, hash, lookKey } from './art';
 import { CAT, DAY_END, DAY_START, REC, T, cols, ROWS, DOOR_X, STATION_NAMES } from './data';
 import { blockedGrid, dims, fh, fw, validatePlace } from './layout';
 import { Evt, Furn } from './types';
@@ -12,7 +12,7 @@ export class CafeScene extends Phaser.Scene {
   private lay: Phaser.GameObjects.GameObject[] = []; private fsp = new Map<number, { img: Phaser.GameObjects.Image; f: Furn }>();
   private psp = new Map<number, PSpr>(); private csp = new Map<number, { s: Phaser.GameObjects.Sprite; b: Phaser.GameObjects.Image; t: number }>();
   private duck!: Phaser.GameObjects.Sprite; private duckKey = ''; private dname?: Phaser.GameObjects.Text; private gfx!: Phaser.GameObjects.Graphics; private dark!: Phaser.GameObjects.Rectangle;
-  private glows: Phaser.GameObjects.Image[] = []; private ghost!: Phaser.GameObjects.Image; private bubbles = new Map<number, Phaser.GameObjects.Image>();
+  private glows: Phaser.GameObjects.Image[] = []; private beams: Phaser.GameObjects.Image[] = []; private shadows = new Map<unknown, Phaser.GameObjects.Image>(); private ghost!: Phaser.GameObjects.Image; private bubbles = new Map<number, Phaser.GameObjects.Image>();
   private ver = -1; private rooms = 0; private grid: boolean[][] = []; private actT = 0; private tAnim = 0; private target: { kind: 'f' | 'duck'; f?: Furn } | null = null;
   private lastPrompt: string | null = null; private posT = 0; private hearts: Phaser.GameObjects.Image[] = []; private px = 0; private py = 0; private dir = 0; private zoom = 3;
   constructor() { super('cafe'); }
@@ -26,7 +26,7 @@ export class CafeScene extends Phaser.Scene {
     this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => this.onPtr(ptr));
     this.input.on('pointermove', (ptr: Phaser.Input.Pointer) => { const d = app.ui?.deco; if (d && (d.key || d.id !== undefined) && !ptr.wasTouch) { const p = this.cameras.main.getWorldPoint(ptr.x, ptr.y); d.x = Math.floor(p.x / T); d.y = Math.floor(p.y / T); } });
     s.onEvt = e => this.onEvt(e);
-    this.events.once('shutdown', () => { app.scene = null; this.dname = undefined; (this as any).duck = undefined; this.fsp.clear(); this.psp.clear(); this.csp.clear(); this.bubbles.clear(); this.glows = []; });
+    this.events.once('shutdown', () => { app.scene = null; this.dname = undefined; (this as any).duck = undefined; this.fsp.clear(); this.psp.clear(); this.csp.clear(); this.bubbles.clear(); this.glows = []; this.beams = []; this.shadows.clear(); });
   }
   private fit() {
     const w = this.scale.width, h = this.scale.height; this.zoom = Math.max(2, Math.min(5, Math.floor(Math.min(w / 300, h / 200)))); this.cameras.main.setZoom(this.zoom);
@@ -39,7 +39,7 @@ export class CafeScene extends Phaser.Scene {
     }
   }
   private pop(x: number, y: number, t: string, col: string) {
-    const tx = this.add.text(x, y, t, { fontFamily: 'monospace', fontSize: '8px', color: col, stroke: '#2e1f26', strokeThickness: 2, fontStyle: 'bold' }).setOrigin(0.5).setDepth(9600).setResolution(this.zoom);
+    const tx = this.add.text(x, y, t, { fontFamily: 'Lira, "Pixelify Sans", monospace', fontSize: '8px', color: col, stroke: '#2e1f26', strokeThickness: 2, fontStyle: 'bold' }).setOrigin(0.5).setDepth(9600).setResolution(this.zoom);
     this.tweens.add({ targets: tx, y: y - 16, alpha: 0, duration: 1100, onComplete: () => tx.destroy() });
   }
 
@@ -48,18 +48,21 @@ export class CafeScene extends Phaser.Scene {
     const w = app.session!.world, m = w.meta, { W, H } = dims(w);
     this.lay.forEach(o => o.destroy()); this.lay = []; this.fsp.forEach(v => v.img.destroy()); this.fsp.clear(); this.glows.forEach(g => g.destroy()); this.glows = [];
     const add = (k: string, x: number, y: number) => { const i = this.add.image(x * T, y * T, k).setOrigin(0).setDepth(-1000); this.lay.push(i); return i; };
-    for (let y = 2; y < H - 1; y++) for (let x = 1; x < W - 1; x++) add(`fl_${m.floor}_${(x + y) % 2}`, x, y);
-    for (let x = 0; x < W; x++) { add(`wl_${m.wall}_0`, x, 0); add(`wl_${m.wall}_1`, x, 1); }
-    for (let y = 2; y < H; y++) { add(`wl_${m.wall}_1`, 0, y); add(`wl_${m.wall}_1`, W - 1, y); }
-    for (let x = 1; x < W - 1; x++) if (x !== DOOR_X && x !== DOOR_X + 1) add(`wl_${m.wall}_1`, x, H - 1);
+    this.beams.forEach(b => b.destroy()); this.beams = [];
+    for (let y = 2; y < H - 1; y++) for (let x = 1; x < W - 1; x++) add(`fl_${y <= 5 && x <= 16 ? 'kitchen' : m.floor}_${Math.floor(hash(x, y) * FLOOR_VARIANTS)}`, x, y);
+    for (let x = 1; x < W - 1; x++) { add(`wl_${m.wall}_0`, x, 0); add(`wl_${m.wall}_1`, x, 1); add('wshadow', x, 2).setDepth(-800); }
+    for (let y = 0; y < H; y++) { add(`wt_${m.wall}`, 0, y); add(`wt_${m.wall}`, W - 1, y); }
+    for (let x = 1; x < W - 1; x++) if (x !== DOOR_X && x !== DOOR_X + 1) add(`wt_${m.wall}`, x, H - 1);
     add('door_0', DOOR_X, H - 1); add('door_1', DOOR_X + 1, H - 1);
     for (const f of w.furn) {
       const d = CAT[f.k]; const flip = f.r === 1 && d.w === d.h; const img = this.add.image(f.x * T, (f.y + fh(f)) * T, `f_${f.k}_${d.w !== d.h ? f.r : 0}_0`).setOrigin(0, 1).setFlipX(flip);
       const rug = !d.blocks && !d.wall; img.setDepth(d.wall ? -900 : rug ? -500 : (f.y + fh(f)) * T);
       this.fsp.set(f.id, { img, f });
+      if (d.blocks !== false && !d.wall) { const sd = this.add.image((f.x + fw(f) / 2) * T, (f.y + fh(f)) * T - 1, 'shadow').setDisplaySize(fw(f) * T + 2, 6).setDepth(-450); this.lay.push(sd); }
+      if (f.k === 'window') { const b = this.add.image(f.x * T - 6, 2 * T, 'beam').setOrigin(0, 0).setBlendMode(Phaser.BlendModes.ADD).setDepth(-400).setAlpha(0); this.beams.push(b); }
       if (f.k === 'lamp' || f.k === 'window') { const g = this.add.image(f.x * T + 8, (f.y + (f.k === 'lamp' ? -0.2 : 1)) * T + (f.k === 'lamp' ? 0 : 4), 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(9100).setAlpha(0).setScale(f.k === 'lamp' ? 1.6 : 1.1); (g as any).lamp = f.k === 'lamp'; this.glows.push(g); }
     }
-    w.furn.filter(f => CAT[f.k].seats).forEach((f, i) => { const t = this.add.text((f.x + fw(f) / 2) * T, (f.y + fh(f) / 2) * T + 1, String(i + 1), { fontFamily: 'monospace', fontSize: '7px', color: '#3b2a2a', fontStyle: 'bold' }).setOrigin(0.5).setDepth((f.y + fh(f)) * T + 0.5).setResolution(this.zoom * 2); this.lay.push(t); });
+    w.furn.filter(f => CAT[f.k].seats).forEach((f, i) => { const t = this.add.text((f.x + fw(f) / 2) * T, (f.y + fh(f) / 2) * T + 1, String(i + 1), { fontFamily: 'Lira, "Pixelify Sans", monospace', fontSize: '7px', color: '#3b2a2a', fontStyle: 'bold' }).setOrigin(0.5).setDepth((f.y + fh(f)) * T + 0.5).setResolution(this.zoom * 2); this.lay.push(t); });
     this.dark.setSize(W * T, H * T);
     this.ver = m.ver; this.rooms = m.rooms; this.grid = blockedGrid(w);
   }
@@ -148,7 +151,7 @@ export class CafeScene extends Phaser.Scene {
     const s = app.session!;
     for (const p of w.players) {
       const pos = s.pos[p.id]; if (!pos) continue; let sp = this.psp.get(p.id); const key = ensureChar(this, p.look);
-      if (!sp) { sp = { s: this.add.sprite(pos.x, pos.y, key, '0_0').setOrigin(0.5, 1), name: this.add.text(0, 0, p.name, { fontFamily: 'monospace', fontSize: '7px', color: '#fff', stroke: '#2e1f26', strokeThickness: 2 }).setOrigin(0.5, 1).setResolution(this.zoom * 2), hand: this.add.image(0, 0, 'i_plate').setVisible(false), key, t: 0 }; this.psp.set(p.id, sp); }
+      if (!sp) { sp = { s: this.add.sprite(pos.x, pos.y, key, '0_0').setOrigin(0.5, 1), name: this.add.text(0, 0, p.name, { fontFamily: 'Lira, "Pixelify Sans", monospace', fontSize: '7px', color: '#fff', stroke: '#2e1f26', strokeThickness: 2 }).setOrigin(0.5, 1).setResolution(this.zoom * 2), hand: this.add.image(0, 0, 'i_plate').setVisible(false), key, t: 0 }; this.psp.set(p.id, sp); }
       if (sp.key !== key) { sp.key = key; sp.s.setTexture(key); }
       const local = p.id === s.me; if (local) { sp.s.x = pos.x; sp.s.y = pos.y; } else { sp.s.x += (pos.x - sp.s.x) * Math.min(1, dt * 14); sp.s.y += (pos.y - sp.s.y) * Math.min(1, dt * 14); }
       sp.t += dt; const row = pos.d === 1 ? 1 : pos.d >= 2 ? 2 : 0; const walk = pos.m === 1, act = pos.m === 2; const carry = p.hand ? 3 : 0; const alt = Math.floor(sp.t / 0.16) % 2;
@@ -156,7 +159,7 @@ export class CafeScene extends Phaser.Scene {
       sp.s.setFrame(`${row}_${fr}`).setFlipX(pos.d === 3).setDepth(sp.s.y).setVisible(p.on || local); sp.name.setText(p.name).setPosition(sp.s.x, sp.s.y - 25).setDepth(9300).setVisible(p.on || local);
       if (p.hand) { sp.hand.setTexture(p.hand.k === 'plate' ? 'i_plate' : 'i_' + p.hand.r).setPosition(sp.s.x, sp.s.y - 28 - (carry ? 3 : 0)).setDepth(9200).setVisible(true); } else sp.hand.setVisible(false);
       if (p.hand?.k === 'dish') { const r = REC[p.hand.r]; sp.hand.setAlpha(p.hand.s >= r.steps.length ? 1 : 0.65); } else sp.hand.setAlpha(1);
-      sp.name.y = sp.s.y - 26 - (p.hand ? 12 : 0);
+      sp.name.y = sp.s.y - 26 - (p.hand ? 12 : 0); this.shadow('p' + p.id, sp.s.x, sp.s.y, p.on || local);
     }
   }
   private syncCustomers(w: import('./types').World, dt: number) {
@@ -174,8 +177,9 @@ export class CafeScene extends Phaser.Scene {
       if (c.st === 'wait') { o.b.setVisible(true).setPosition(o.s.x, o.s.y - 30).setDepth(9250); const f = c.pat / c.patMax; const col = f > 0.5 ? 0x6cc36b : f > 0.25 ? 0xf2b84b : 0xe85d5d; this.gfx.fillStyle(0x2e1f26, 1).fillRect(o.s.x - 7, o.s.y - 21, 14, 3).fillStyle(col, 1).fillRect(o.s.x - 6, o.s.y - 20, Math.max(0, 12 * f), 1); }
       else if (c.st === 'sit') { o.b.setVisible(false); } else o.b.setVisible(false);
       if (c.st === 'out' && c.mood === 0) { o.s.setTint(0xffb0a0); }
+      this.shadow('c' + c.id, o.s.x, o.s.y, !seated);
     }
-    for (const [id, o] of this.csp) if (!seen.has(id)) { o.s.destroy(); o.b.destroy(); this.csp.delete(id); }
+    for (const [id, o] of this.csp) if (!seen.has(id)) { o.s.destroy(); o.b.destroy(); this.csp.delete(id); this.shadows.get('c' + id)?.destroy(); this.shadows.delete('c' + id); }
     // kirli masa göstergesi
     for (const f of w.furn) if ((w.dirty[f.id] || 0) > 0) this.gfx.fillStyle(0xf6f1e7, 1).fillRect(f.x * T + (f.r ? 4 : 20), f.y * T + (f.r ? 20 : 5), 8, 3).lineStyle(1, 0x2e1f26).strokeRect(f.x * T + (f.r ? 4 : 20), f.y * T + (f.r ? 20 : 5), 8, 3);
   }
@@ -200,10 +204,14 @@ export class CafeScene extends Phaser.Scene {
   private syncDuck(w: import('./types').World, dt: number) {
     const d = w.duck, key = ensureDuck(this, d); if (!this.duck) { this.duck = this.add.sprite(d.x, d.y, key, '0').setOrigin(0.5, 1); }
     if (this.duckKey !== key) { this.duckKey = key; this.duck.setTexture(key); }
-    this.dname ??= this.add.text(0, 0, 'Mertoş', { fontFamily: 'monospace', fontSize: '6px', color: '#fff', stroke: '#2e1f26', strokeThickness: 2 }).setOrigin(0.5, 1).setDepth(9300).setResolution(this.zoom * 2);
+    this.dname ??= this.add.text(0, 0, 'Mertoş', { fontFamily: 'Lira, "Pixelify Sans", monospace', fontSize: '6px', color: '#fff', stroke: '#2e1f26', strokeThickness: 2 }).setOrigin(0.5, 1).setDepth(9300).setResolution(this.zoom * 2);
     const mv = Math.hypot(d.x - this.duck.x, d.y - this.duck.y); this.duck.x += (d.x - this.duck.x) * Math.min(1, dt * 12); this.duck.y += (d.y - this.duck.y) * Math.min(1, dt * 12);
     this.duck.setFrame(mv > 0.3 ? String(Math.floor(this.tAnim / 0.2) % 2) : '0').setFlipX(d.d === 3).setDepth(this.duck.y + 2);
-    this.dname.setPosition(this.duck.x, this.duck.y - 16); this.duck.setScale(1, mv > 0.3 ? 1 + Math.sin(this.tAnim * 20) * 0.04 : 1);
+    this.dname.setPosition(this.duck.x, this.duck.y - 16); this.shadow('duck', this.duck.x, this.duck.y, true, 10); this.duck.setScale(1, mv > 0.3 ? 1 + Math.sin(this.tAnim * 20) * 0.04 : 1);
+  }
+  private shadow(key: unknown, x: number, y: number, show = true, w = 12) {
+    let sd = this.shadows.get(key); if (!sd) { sd = this.add.image(0, 0, 'shadow').setDepth(-420); this.shadows.set(key, sd); }
+    sd.setPosition(Math.round(x), Math.round(y) - 1).setDisplaySize(w, 4).setVisible(show);
   }
   private drawDeco(w: import('./types').World) {
     const d = app.ui?.deco; if (!d || (!d.key && d.id === undefined)) { this.ghost.setVisible(false); return; }
@@ -216,7 +224,7 @@ export class CafeScene extends Phaser.Scene {
   }
   private lighting(w: import('./types').World) {
     const tm = w.meta.tm; let a = 0; if (tm > 1000) a = Math.min(0.5, (tm - 1000) / 200 * 0.5); else if (tm < DAY_START + 60) a = (1 - (tm - DAY_START) / 60) * 0.18; if (w.meta.phase === 'report') a = 0.5;
-    this.dark.setFillStyle(0x10103a, a); for (const g of this.glows) g.setAlpha(Math.min(1, a * 2 + ((g as any).lamp ? 0.12 : 0)) * ((g as any).lamp ? 1 : 0.5));
+    this.dark.setFillStyle(0x10103a, a); for (const b of this.beams) b.setAlpha(Math.max(0, 0.45 - a * 1.4)); for (const g of this.glows) g.setAlpha(Math.min(1, a * 2 + ((g as any).lamp ? 0.12 : 0)) * ((g as any).lamp ? 1 : 0.5));
     const sel = app.ui?.deco?.sel; if (sel) { const f = w.furn.find(f => f.id === sel); if (f) this.gfx.lineStyle(1, 0x80d0ff, 1).strokeRect(f.x * T - 1, f.y * T - 1, fw(f) * T + 2, fh(f) * T + 2); }
   }
 }

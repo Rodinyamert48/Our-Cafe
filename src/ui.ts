@@ -32,7 +32,7 @@ export function showMenu() {
   closeModal(); root.querySelectorAll('#menu,#hud,#joy,#ibtn,#banner,#decobar').forEach(e => e.remove()); music('off');
   const m = document.createElement('div'); m.id = 'menu'; m.className = 'screen';
   const items = ['plant_b', 'coffee', 'table_cozy', 'lamp', 'bookshelf'].map(k => `<img src="${furnURL(k)}" style="width:${CAT[k].w > 1 ? 96 : 48}px">`).join('');
-  m.innerHTML = `<h1 class="logo">OUR CAFE<small>BİRLİKTE İŞLETİLEN KAFE</small></h1>
+  m.innerHTML = `<div class="sign"><h1 class="logo">OUR CAFE</h1><small>BİRLİKTE İŞLETİLEN KAFE</small></div>
   <div class="menubtns">
    <button class="btn green" data-a="m-new">Yeni Oyun</button><button class="btn" data-a="m-host">Oda Oluştur</button><button class="btn blue" data-a="m-join">Odaya Katıl</button>
    <button class="btn gray" data-a="m-saves">Kayıtlar</button><button class="btn gray" data-a="m-settings">Ayarlar</button><button class="btn gray" data-a="m-about">Hakkında</button></div>
@@ -123,8 +123,9 @@ function waitGuestWorld() {
 // ================= HUD =================
 function buildHud() {
   const h = document.createElement('div'); h.id = 'hud';
-  h.innerHTML = `<div class="top"><div class="chip" id="h-money"></div><div class="chip" id="h-time"></div><div class="chip" id="h-lvl"></div><div class="chip" id="h-pl"></div>
-   <div class="chip btnc" data-a="h-inv">Envanter</div><div class="chip btnc" data-a="h-deco">Dekor</div><div class="chip btnc" data-a="h-menu">☰ Menü</div><div class="chip" id="h-save" style="opacity:0">Kaydedildi</div></div>
+  const I = (n: string) => `<img class="ic" src="${iconURL(n)}">`;
+  h.innerHTML = `<div class="top"><div class="chip money" id="h-money"></div><div class="chip" id="h-time"></div><div class="chip" id="h-lvl"></div><div class="chip" id="h-pl"></div><span class="sp"></span>
+   <div class="chip btnc" data-a="h-inv">${I('bag')}<span>Envanter</span></div><div class="chip btnc" data-a="h-deco">${I('brush')}<span>Dekor</span></div><div class="chip btnc dark" data-a="h-menu">${I('menu')}<span>Menü</span></div><div class="chip" id="h-save" style="opacity:0">Kaydedildi</div></div>
    <div class="orders" id="orders"></div><div class="chip" id="hand" style="position:fixed;left:8px;top:92px;display:none"></div><div class="prompt" id="prompt"></div>`;
   root.appendChild(h);
   const joyEl = document.createElement('div'); joyEl.id = 'joy'; joyEl.innerHTML = '<i></i>'; root.appendChild(joyEl);
@@ -141,10 +142,10 @@ function buildHud() {
 function tickHud() {
   const s = sess; if (!s?.world) return; const w = s.world, m = w.meta; const $ = (id: string) => document.getElementById(id);
   const set = (id: string, html: string) => { const e = $(id); if (e && e.dataset.h !== html) { e.dataset.h = html; e.innerHTML = html; } };
-  set('h-money', `<img src="${iconURL('seker')}" width=0 style="display:none">₺ <b>${Math.floor(m.money)}</b>`);
-  set('h-time', `Gün <b>${m.day}</b> · ${fmtT(m.tm)} ${m.phase === 'closing' ? '· Kapanıyor' : ''}${w.paused ? ' · ⏸' : ''}`);
-  const lo = xpFor(m.level), hi = xpFor(m.level + 1); set('h-lvl', `Seviye <b>${m.level}</b><div class="xp"><i style="width:${Math.min(100, (m.xp - lo) / (hi - lo) * 100)}%"></i></div>`);
-  set('h-pl', w.players.map(p => `<span style="opacity:${p.on ? 1 : .4}">${p.id === s.me ? '★' : '●'} ${esc(p.name)}</span>`).join(' '));
+  set('h-money', `<img class="ic" src="${iconURL('coin')}"><b>₺${Math.floor(m.money)}</b>`);
+  set('h-time', `<img class="ic" src="${iconURL('clock')}">Gün <b>${m.day}</b> · ${fmtT(m.tm)} ${m.phase === 'closing' ? '· Kapanıyor' : ''}${w.paused ? ' · ⏸' : ''}`);
+  const lo = xpFor(m.level), hi = xpFor(m.level + 1); set('h-lvl', `<img class="ic" src="${iconURL('star')}">Sv <b>${m.level}</b><div class="xp"><i style="width:${Math.min(100, (m.xp - lo) / (hi - lo) * 100)}%"></i></div>`);
+  set('h-pl', `<img class="ic" src="${iconURL('user')}">` + w.players.map(p => `<span style="opacity:${p.on ? 1 : .4}">${p.id === s.me ? '★' : '●'} ${esc(p.name)}</span>`).join(' '));
   const ords = w.cust.filter(c => c.st === 'wait').sort((a, b) => a.pat - b.pat).slice(0, 7); const tables = w.furn.filter(f => CAT[f.k].seats);
   set('orders', ords.map(c => { const f = c.pat / c.patMax; return `<div class="ord"><img src="${iconURL(c.r)}"><div style="flex:1"><div>Masa ${tables.findIndex(t => t.id === c.tbl) + 1}</div><div class="pb"><i style="width:${f * 100}%;background:${f > .5 ? '#6cc36b' : f > .25 ? '#f2b84b' : '#e85d5d'}"></i></div></div></div>`; }).join(''));
   const me = w.players.find(p => p.id === s.me), hd = $('hand')!;

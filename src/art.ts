@@ -20,8 +20,20 @@ const R = (c: Ctx, col: string, x: number, y: number, w = 1, h = 1) => { c.fillS
 const sh = (hex: string, d: number) => { const n = parseInt(hex.slice(1), 16); const f = (v: number) => Math.max(0, Math.min(255, v + d)); return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(f).map(v => v.toString(16).padStart(2, '0')).join(''); };
 
 /** Her kareyi (cell boyutlu) 1px dış çizgiyle çevreler. */
+/** Hacim hissi için otomatik ışık/gölge: üst kenar aydınlık, alt kenar koyu (sol üstten ışık). */
+function shade(cv: HTMLCanvasElement, cw: number, ch: number) {
+  const c = cv.getContext('2d')!; const img = c.getImageData(0, 0, cv.width, cv.height); const d = img.data, W = cv.width, H = cv.height; const src = new Uint8ClampedArray(d);
+  const a = (x: number, y: number, ox: number, oy: number) => { const nx = x + ox, ny = y + oy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || Math.floor(nx / cw) !== Math.floor(x / cw) || Math.floor(ny / ch) !== Math.floor(y / ch)) return 0; return src[(ny * W + nx) * 4 + 3]; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4; if (!src[i + 3]) continue; let k = 0;
+    if (!a(x, y, 0, -1)) k += 26; else if (!a(x, y, -1, 0)) k += 12;
+    if (!a(x, y, 0, 1)) k -= 34; else if (!a(x, y, 1, 0)) k -= 16; else if (!a(x, y, 0, 2)) k -= 12;
+    if (k) for (let j = 0; j < 3; j++) d[i + j] = Math.max(0, Math.min(255, src[i + j] + k * (k > 0 ? 1 : 1.15)));
+  }
+  c.putImageData(img, 0, 0);
+}
 function outline(cv: HTMLCanvasElement, cw = cv.width, ch = cv.height) {
-  const c = cv.getContext('2d')!; const img = c.getImageData(0, 0, cv.width, cv.height); const d = img.data, W = cv.width;
+  shade(cv, cw, ch); const c = cv.getContext('2d')!; const img = c.getImageData(0, 0, cv.width, cv.height); const d = img.data, W = cv.width;
   const src = new Uint8ClampedArray(d); const a = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= cv.height ? 0 : src[(y * W + x) * 4 + 3]);
   const col = [0x2e, 0x1f, 0x26];
   for (let y = 0; y < cv.height; y++) for (let x = 0; x < W; x++) {
@@ -169,12 +181,16 @@ const FD: Record<string, { w: number; h: number; frames?: number; d: Drawer }> =
   clock: { w: 16, h: 16, d: c => { R(c, W1[2], 3, 3, 10, 10); R(c, '#f6f1e7', 4, 4, 8, 8); R(c, '#333', 8, 5, 1, 4); R(c, '#333', 8, 8, 3, 1); R(c, '#c8453a', 4, 8, 1, 1); } },
 };
 function tbl(c: Ctx, top: string, edge: string) {
-  for (const [cx, flip] of [[0, 0], [32, 1]]) { // sandalyeler
-    R(c, W1[2], cx + (flip ? 12 : 1), 3, 3, 11); R(c, W1[0], cx + (flip ? 3 : 4), 4, 9, 9); R(c, W1[1], cx + (flip ? 3 : 4), 11, 9, 2);
+  for (const [cx, flip] of [[0, 0], [32, 1]]) { // sandalyeler (arkalıklı)
+    const bx = cx + (flip ? 12 : 1); R(c, W1[2], bx, 1, 3, 13); R(c, W1[1], bx + 1, 2, 1, 11);
+    const sx = cx + (flip ? 3 : 4); R(c, W1[0], sx, 5, 9, 7); R(c, sh(W1[0], 18), sx, 5, 9, 1); R(c, '#c8453a', sx + 1, 6, 7, 4); R(c, '#e0675a', sx + 1, 6, 7, 1); R(c, W1[2], sx, 12, 9, 1);
+    R(c, W1[2], sx + 1, 13, 1, 2); R(c, W1[2], sx + 7, 13, 1, 2);
   }
-  R(c, edge, 15, 2, 18, 12); R(c, top, 16, 3, 16, 8); R(c, sh(top, 25), 16, 3, 16, 1); R(c, sh(edge, -30), 16, 13, 16, 1);
-  R(c, W1[2], 18, 14, 2, 2); R(c, W1[2], 28, 14, 2, 2);
+  R(c, edge, 15, 1, 18, 12); R(c, top, 16, 2, 16, 9); R(c, sh(top, 22), 16, 2, 16, 1); R(c, sh(top, -10), 18, 5, 10, 1); R(c, sh(top, -10), 20, 8, 9, 1);
+  R(c, sh(edge, -30), 15, 12, 18, 1); R(c, W1[2], 17, 13, 2, 3); R(c, W1[2], 29, 13, 2, 3);
+  R(c, '#f6f1e7', 21, 4, 6, 4); R(c, '#e6dccb', 21, 7, 6, 1); R(c, '#6cc36b', 23, 3, 2, 2); R(c, '#ff8fb8', 23, 2, 2, 1); // küçük vazo/peçete
 }
+export { hash };
 export const fdesc = (k: string) => FD[k];
 export function furnCanvas(k: string, frame = 0, r = 0): HTMLCanvasElement {
   const d = FD[k]; let cv = mk(d.w, d.h); d.d(cv.getContext('2d')!, frame); outline(cv);
@@ -209,6 +225,13 @@ const IC: Record<string, Drawer> = {
   kurabiyeD: c => { R(c, '#d9a45f', 3, 5, 10, 8); R(c, '#d9a45f', 4, 4, 8, 10); R(c, '#5a3520', 5, 6, 2, 2); R(c, '#5a3520', 9, 8, 2, 2); R(c, '#5a3520', 6, 10, 2, 2); },
   kekD: c => { R(c, '#f6f1e7', 1, 12, 14, 2); R(c, '#e8c88a', 3, 7, 10, 5); R(c, '#ff8fb8', 3, 5, 10, 3); R(c, '#fff', 4, 5, 3, 1); R(c, '#d4453a', 7, 2, 2, 3); R(c, '#4a9a5a', 8, 1, 1, 1); },
   pankekD: c => { R(c, '#f6f1e7', 1, 12, 14, 2); R(c, '#d9a45f', 3, 9, 10, 3); R(c, '#e8b878', 3, 6, 10, 3); R(c, '#d9a45f', 3, 3, 10, 3); R(c, '#8a4a1c', 4, 3, 8, 2); R(c, '#f8e08a', 7, 1, 3, 2); },
+  coin: c => { R(c, '#c98a1c', 3, 2, 10, 12); R(c, '#c98a1c', 2, 4, 12, 8); R(c, '#f5c542', 4, 3, 8, 10); R(c, '#f5c542', 3, 5, 10, 6); R(c, '#fff0a0', 5, 4, 2, 2); R(c, '#c98a1c', 7, 5, 2, 6); R(c, '#c98a1c', 6, 6, 4, 1); R(c, '#c98a1c', 6, 8, 4, 1); },
+  clock: c => { R(c, '#f6f1e7', 3, 2, 10, 12); R(c, '#f6f1e7', 2, 4, 12, 8); R(c, '#4f9bd9', 3, 2, 10, 1); R(c, '#333', 7, 4, 2, 5); R(c, '#333', 7, 8, 4, 1); R(c, '#c8453a', 3, 7, 1, 1); },
+  star: c => { R(c, '#f5c542', 7, 1, 2, 3); R(c, '#f5c542', 2, 5, 12, 3); R(c, '#f5c542', 4, 8, 8, 2); R(c, '#f5c542', 3, 10, 4, 3); R(c, '#f5c542', 9, 10, 4, 3); R(c, '#f5c542', 6, 4, 4, 1); R(c, '#fff0a0', 6, 5, 2, 2); },
+  user: c => { R(c, '#f0b9a0', 5, 2, 6, 6); R(c, '#5a3520', 5, 2, 6, 2); R(c, '#e85d75', 3, 9, 10, 5); R(c, '#f6f1e7', 7, 9, 2, 4); },
+  bag: c => { R(c, '#a8692e', 2, 5, 12, 9); R(c, '#c98a4b', 3, 5, 10, 2); R(c, '#5a3520', 5, 2, 6, 1); R(c, '#5a3520', 5, 2, 1, 4); R(c, '#5a3520', 10, 2, 1, 4); R(c, '#f5c542', 7, 8, 2, 2); },
+  brush: c => { R(c, '#8a5a2b', 9, 1, 3, 7); R(c, '#aab4c0', 7, 7, 5, 2); R(c, '#c8453a', 5, 9, 6, 3); R(c, '#c8453a', 3, 11, 6, 3); R(c, '#e8685c', 5, 10, 2, 1); },
+  menu: c => { for (const y of [3, 7, 11]) { R(c, '#f6f1e7', 2, y, 12, 2); } },
   plate: c => { R(c, '#f6f1e7', 2, 8, 12, 5); R(c, '#dcd4c0', 3, 11, 10, 2); R(c, '#f6f1e7', 4, 7, 8, 1); },
 };
 const DISH_IC: Record<string, string> = { kahve: 'kahveD', sutlu: 'sutluD', cay: 'cayD', limonata: 'limonataD', sandvic: 'sandvicD', patates: 'patatesD', burger: 'burgerD', pizza: 'pizzaD', kurabiye: 'kurabiyeD', kek: 'kekD', pankek: 'pankekD' };
@@ -218,23 +241,72 @@ export function iconURL(id: string) { let u = urls.get(id); if (!u) { u = iconCa
 export function furnURL(k: string) { const key = 'f:' + k; let u = urls.get(key); if (!u) { u = furnCanvas(k).toDataURL(); urls.set(key, u); } return u; }
 
 // ---------- ZEMİN / DUVAR ----------
+const hash = (a: number, b: number) => { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+export const FLOOR_VARIANTS = 4;
+function noise(c: Ctx, seed: number, w: number, h: number, dark: string, light: string, n = 10) { for (let i = 0; i < n; i++) { const r = hash(seed, i); R(c, r < 0.5 ? dark : light, Math.floor(hash(i, seed) * w), Math.floor(hash(seed + 7, i * 3) * h)); } }
 function floorTile(style: string, v: number): HTMLCanvasElement {
   const cv = mk(16, 16), c = cv.getContext('2d')!;
-  if (style === 'wood') { R(c, v ? '#c89a62' : '#cfa56c', 0, 0, 16, 16); for (let i = 0; i < 4; i++) { R(c, '#a8793f', 0, i * 4 + 3, 16, 1); } R(c, '#a8793f', v ? 5 : 10, 0, 1, 3); R(c, '#a8793f', v ? 11 : 3, 4, 1, 3); R(c, '#a8793f', v ? 4 : 12, 8, 1, 3); R(c, '#a8793f', v ? 9 : 6, 12, 1, 3); R(c, '#dcb47e', 2, 1, 4, 1); }
-  else if (style === 'check') { for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) R(c, (x + y + v) % 2 ? '#8a5a3c' : '#efe0c0', x * 8, y * 8, 8, 8); }
-  else { R(c, v ? '#9aa0a8' : '#a4aab2', 0, 0, 16, 16); R(c, '#7d8590', 0, 7, 16, 1); R(c, '#7d8590', 7, 0, 1, 16); R(c, '#b8bec6', 1, 1, 5, 1); R(c, '#b8bec6', 9, 9, 5, 1); }
+  if (style === 'wood') {
+    const tones = ['#c99b63', '#cda26b', '#c4945c', '#c99f66'];
+    for (let b = 0; b < 2; b++) {
+      const y = b * 8, cut = 4 + Math.floor(hash(v, b) * 9);
+      for (const [x0, x1, t] of [[0, cut, b + v], [cut, 16, b + v + 2]] as const) {
+        const col = tones[t % tones.length]; R(c, col, x0, y, x1 - x0, 8); R(c, sh(col, 10), x0, y, x1 - x0, 1);
+        if (x1 - x0 > 5) { R(c, sh(col, -10), x0 + 2, y + 3, x1 - x0 - 4, 1); R(c, sh(col, -7), x0 + 1 + (t % 3), y + 5, Math.max(1, x1 - x0 - 5), 1); }
+      }
+      R(c, '#9c7244', 0, y + 7, 16, 1); R(c, '#a97c4b', cut, y, 1, 7);
+    }
+  } else if (style === 'check') {
+    for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) { const dk = (x + y) % 2; const col = dk ? '#7e4f36' : '#efe2c4'; R(c, col, x * 8, y * 8, 8, 8); R(c, sh(col, 16), x * 8, y * 8, 8, 1); R(c, sh(col, 16), x * 8, y * 8, 1, 8); R(c, sh(col, -20), x * 8, y * 8 + 7, 8, 1); }
+    noise(c, v + 30, 16, 16, 'rgba(0,0,0,.08)', 'rgba(255,255,255,.12)', 8);
+  } else if (style === 'kitchen') {
+    R(c, '#b9c2c9', 0, 0, 16, 16);
+    for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) { const col = hash(v * 4 + x, y) > 0.8 ? '#dfe7ec' : '#eef3f5'; R(c, col, x * 8, y * 8, 7, 7); R(c, '#ffffff', x * 8, y * 8, 6, 1); R(c, '#d3dce2', x * 8 + 6, y * 8 + 1, 1, 6); }
+  } else {
+    R(c, '#8f959e', 0, 0, 16, 16);
+    for (const [x, y, w, h] of [[0, 0, 9, 7], [10, 0, 6, 7], [0, 8, 5, 8], [6, 8, 10, 8]]) { const col = ['#a7adb5', '#9ea4ac', '#b0b6bd', '#a2a8b0'][(x + y + v) % 4]; R(c, col, x, y, w, h); R(c, sh(col, 16), x, y, w, 1); R(c, sh(col, -16), x, y + h - 1, w, 1); }
+    noise(c, v + 50, 16, 16, '#8a9099', '#c0c6cc', 6);
+  }
   return cv;
 }
+const WALLS_DEF: Record<string, { paper: string; pat: string; panel: string; trim: string }> = {
+  cream: { paper: '#f0dfbb', pat: '#e6cfa2', panel: '#a8743c', trim: '#7a4f28' },
+  brick: { paper: '#b5573f', pat: '#7a3524', panel: '#6b3b26', trim: '#4a2418' },
+  mint: { paper: '#cfe8d4', pat: '#b4d8bd', panel: '#5f9a70', trim: '#3f6e4d' },
+};
 function wallTile(style: string, part: 0 | 1): HTMLCanvasElement {
-  const cv = mk(16, 16), c = cv.getContext('2d')!;
-  if (style === 'cream') { R(c, '#f1e2c0', 0, 0, 16, 16); if (part === 0) { R(c, '#e4d3ae', 0, 12, 16, 4); } else { R(c, '#b9803f', 0, 6, 16, 10); R(c, '#d9a45f', 0, 6, 16, 1); R(c, '#8a5a2b', 0, 14, 16, 2); R(c, '#9a6a35', 5, 8, 1, 6); R(c, '#9a6a35', 11, 8, 1, 6); } }
-  else if (style === 'brick') { R(c, '#b5573f', 0, 0, 16, 16); for (let y = 0; y < 4; y++) { R(c, '#7a3524', 0, y * 4 + 3, 16, 1); R(c, '#7a3524', (y % 2) * 8 + 4, y * 4, 1, 3); } if (part) R(c, '#5a2a20', 0, 14, 16, 2); }
-  else { R(c, '#cfe8d4', 0, 0, 16, 16); for (let x = 0; x < 16; x += 4) R(c, '#bcdcc4', x, 0, 2, 16); if (part) { R(c, '#7fb08a', 0, 7, 16, 9); R(c, '#9bc8a5', 0, 7, 16, 1); } }
+  const cv = mk(16, 16), c = cv.getContext('2d')!, w = WALLS_DEF[style] ?? WALLS_DEF.cream;
+  const paper = (h: number) => {
+    R(c, w.paper, 0, 0, 16, h);
+    if (style === 'brick') { for (let y = 0; y < h; y += 4) { R(c, w.pat, 0, y + 3, 16, 1); const o = (y / 4) % 2 ? 0 : 8; R(c, w.pat, o + 3, y, 1, 3); R(c, w.pat, (o + 11) % 16, y, 1, 3); R(c, sh(w.paper, 14), o + 4, y, 3, 1); } }
+    else for (let y = 1; y < h; y += 6) for (let x = (y % 12 ? 0 : 4); x < 16; x += 8) { R(c, w.pat, x + 2, y, 1, 3); R(c, w.pat, x + 1, y + 1, 3, 1); }
+  };
+  if (part === 0) { paper(16); R(c, w.trim, 0, 0, 16, 3); R(c, sh(w.trim, 30), 0, 3, 16, 1); R(c, 'rgba(0,0,0,.12)', 0, 4, 16, 2); }
+  else {
+    paper(5); R(c, w.trim, 0, 5, 16, 2); R(c, sh(w.trim, 40), 0, 5, 16, 1);
+    R(c, w.panel, 0, 7, 16, 7); R(c, sh(w.panel, -22), 1, 8, 6, 5); R(c, sh(w.panel, -22), 9, 8, 6, 5); R(c, sh(w.panel, 14), 2, 9, 4, 3); R(c, sh(w.panel, 14), 10, 9, 4, 3);
+    R(c, w.trim, 0, 14, 16, 2); R(c, sh(w.trim, -25), 0, 15, 16, 1);
+  }
   return cv;
+}
+function wallTop(style: string): HTMLCanvasElement {
+  const cv = mk(16, 16), c = cv.getContext('2d')!, w = WALLS_DEF[style] ?? WALLS_DEF.cream;
+  R(c, sh(w.trim, -10), 0, 0, 16, 16); R(c, sh(w.trim, 18), 0, 0, 16, 2); for (let y = 4; y < 16; y += 5) R(c, sh(w.trim, -28), 0, y, 16, 1); R(c, sh(w.trim, -40), 0, 15, 16, 1); return cv;
 }
 export const floorPreview = (s: string) => floorTile(s, 0).toDataURL();
 export const wallPreview = (s: string) => wallTile(s, 1).toDataURL();
-function doorTile(part: number) { const cv = mk(16, 16), c = cv.getContext('2d')!; R(c, '#6b4220', 0, 0, 16, 16); R(c, '#bfe4f5', part ? 1 : 3, 1, part ? 12 : 12, 12); R(c, '#e8f6fc', part ? 3 : 4, 2, 2, 8); R(c, '#d9a45f', part ? 1 : 14, 7, 1, 3); R(c, '#8a5a2b', 0, 14, 16, 2); return cv; }
+function doorTile(part: number) {
+  const cv = mk(16, 16), c = cv.getContext('2d')!; R(c, '#6b4220', 0, 0, 16, 16); R(c, '#8a5a2b', 0, 0, 16, 1);
+  R(c, '#9fd2ea', part ? 1 : 3, 2, 12, 10); R(c, '#cdeefa', part ? 2 : 4, 3, 3, 1); R(c, '#e8f6fc', part ? 3 : 5, 4, 1, 6); R(c, '#e8f6fc', part ? 5 : 7, 4, 1, 3);
+  R(c, '#f2c14e', part ? 1 : 14, 6, 1, 3); R(c, '#5a3520', 0, 13, 16, 3); R(c, '#c8453a', 2, 14, 12, 2); return cv;
+}
+function shadowTex(): HTMLCanvasElement { const cv = mk(16, 6), c = cv.getContext('2d')!; c.fillStyle = 'rgba(20,10,20,0.32)'; c.fillRect(3, 0, 10, 6); c.fillRect(1, 1, 14, 4); c.fillRect(0, 2, 16, 2); return cv; }
+function wallShadow(): HTMLCanvasElement { const cv = mk(16, 8), c = cv.getContext('2d')!; for (let y = 0; y < 8; y++) { c.fillStyle = `rgba(30,15,25,${0.3 * (1 - y / 8)})`; c.fillRect(0, y, 16, 1); } return cv; }
+function beam(): HTMLCanvasElement {
+  const cv = mk(32, 48), c = cv.getContext('2d')!;
+  for (let y = 0; y < 48; y++) { const a = 0.55 * (1 - y / 48); c.fillStyle = `rgba(255,236,180,${a})`; const sk = Math.floor(y * 0.33); c.fillRect(4 + sk, y, 12, 1); c.fillStyle = `rgba(255,236,180,${a * 0.5})`; c.fillRect(2 + sk, y, 16, 1); }
+  return cv;
+}
 
 function glow(): HTMLCanvasElement {
   const cv = mk(64, 64), c = cv.getContext('2d')!; const g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -244,9 +316,9 @@ function glow(): HTMLCanvasElement {
 export function buildTextures(scene: Phaser.Scene) {
   const tx = scene.textures;
   const add = (k: string, cv: HTMLCanvasElement) => { if (!tx.exists(k)) tx.addCanvas(k, cv); };
-  for (const s of ['wood', 'check', 'stone']) for (let v = 0; v < 2; v++) add(`fl_${s}_${v}`, floorTile(s, v));
-  for (const s of ['cream', 'brick', 'mint']) for (const p of [0, 1] as const) add(`wl_${s}_${p}`, wallTile(s, p));
-  add('door_0', doorTile(0)); add('door_1', doorTile(1)); add('glow', glow());
+  for (const s of ['wood', 'check', 'stone', 'kitchen']) for (let v = 0; v < FLOOR_VARIANTS; v++) add(`fl_${s}_${v}`, floorTile(s, v));
+  for (const s of ['cream', 'brick', 'mint']) { for (const p of [0, 1] as const) add(`wl_${s}_${p}`, wallTile(s, p)); add(`wt_${s}`, wallTop(s)); }
+  add('door_0', doorTile(0)); add('door_1', doorTile(1)); add('glow', glow()); add('shadow', shadowTex()); add('wshadow', wallShadow()); add('beam', beam());
   for (const c of CATALOG) { const fr = FD[c.k].frames ?? 1; for (let r = 0; r < (c.w !== c.h ? 2 : 1); r++) for (let f = 0; f < fr; f++) add(`f_${c.k}_${r}_${f}`, furnCanvas(c.k, f, r)); }
   for (const i of INGS) add('i_' + i.id, iconCanvas(i.id));
   for (const r of RECIPES) add('i_' + r.id, iconCanvas(r.id));

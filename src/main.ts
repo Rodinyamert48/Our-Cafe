@@ -1,3 +1,5 @@
+import '@fontsource/pixelify-sans/400.css';
+import '@fontsource/pixelify-sans/700.css';
 import Phaser from 'phaser';
 import { CafeScene } from './scene';
 import { hooks, showMenu } from './ui';
@@ -9,4 +11,5 @@ const game = new Phaser.Game({
 game.scene.add('cafe', CafeScene);
 hooks.set(() => { game.scene.start('cafe'); }, () => { game.scene.stop('cafe'); });
 showMenu();
+void document.fonts?.load('16px "Pixelify Sans"');
 (window as any).__game = game; import('./app').then(m => ((window as any).__app = m.app));
